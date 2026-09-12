@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function admin() {
+      return request.auth != null && request.auth.token.email_verified == true
+        && (request.auth.token.email == 'almacen@arlessas.com'
+          || (exists(/databases/$(database)/documents/administradores/$(request.auth.uid))
+            && get(/databases/$(database)/documents/administradores/$(request.auth.uid)).data.activo == true));
+    }
+    match /{path=**}/registros/{registro} {
+      allow read: if admin();
+    }
+    match /administradores/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    match /trabajadores/{uid}/registros/{registro} {
+      function owner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function valid() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['schemaVersion', 'sourceId', 'tipo', 'censoId', 'origen', 'datos', 'workerUid', 'actualizadoServidor'])
+          && d.keys().hasOnly(['schemaVersion', 'sourceId', 'tipo', 'censoId', 'origen', 'datos', 'workerUid', 'actualizadoServidor'])
+          && d.workerUid == uid && d.schemaVersion == 1
+          && d.sourceId is string && d.sourceId.size() == 36
+          && d.censoId is string
+          && d.tipo in ['FRUTOS', 'PRODUCCION', 'FLORACION']
+          && d.origen in ['INVITADO', 'TRABAJADOR']
+          && d.datos is map && d.datos.id is int
+          && d.datos.loteId is string && !(d.datos.loteId in ['L001', 'L002'])
+          && d.datos.lineaId is string && d.datos.fechaCenso is int
+          && d.actualizadoServidor == request.time;
+      }
+      allow read: if owner();
+      allow create: if owner() && valid();
+      allow update: if owner() && valid()
+        && request.resource.data.sourceId == resource.data.sourceId
+        && request.resource.data.tipo == resource.data.tipo
+        && request.resource.data.censoId == resource.data.censoId
+        && request.resource.data.origen == resource.data.origen;
+      allow delete: if false;
+    }
+  }
+}
