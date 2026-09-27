@@ -1,6 +1,7 @@
+import {createLiveFeed} from "./live-feed.mjs";
 import {getApps,initializeApp} from "firebase/app";
 import {getAuth,setPersistence,browserSessionPersistence,signInWithEmailAndPassword,signOut,onAuthStateChanged,sendEmailVerification} from "firebase/auth";
-import {getFirestore,collectionGroup,query,orderBy,limit,startAfter,getDocs,documentId,type QueryDocumentSnapshot} from "firebase/firestore";
+import {getFirestore,collectionGroup,query,orderBy,limit,startAfter,getDocs,onSnapshot,documentId,type QueryDocumentSnapshot} from "firebase/firestore";
 import config from "./firebase-config.json";
 export function services(){const app=getApps()[0]??initializeApp(config);return {auth:getAuth(app),db:getFirestore(app)}}
 export async function login(email:string,password:string){const {auth}=services();await setPersistence(auth,browserSessionPersistence);return signInWithEmailAndPassword(auth,email.trim(),password)}
@@ -9,3 +10,23 @@ export function watchAuth(callback:(email:string|null)=>void){return onAuthState
 export async function verifyEmail(){const user=services().auth.currentUser;if(!user)throw Error("Primero inicia sesión.");await sendEmailVerification(user)}
 export async function readRecords(){const {auth,db}=services();if(!auth.currentUser)throw Error("Inicia sesión con una cuenta administrativa para consultar los conteos.");await auth.currentUser.reload();await auth.currentUser.getIdToken(true);if(!auth.currentUser.emailVerified)throw Error("Verifica tu correo para consultar los censos de todos los trabajadores.");const uid=auth.currentUser.uid;let cursor:QueryDocumentSnapshot|undefined;const records:any[]=[];do{const constraints=[orderBy(documentId()),limit(500),...(cursor?[startAfter(cursor)]:[])];const batch=await getDocs(query(collectionGroup(db,"registros"),...constraints));for(const doc of batch.docs){const r=doc.data();if(doc.ref.path.startsWith("trabajadores/")&&["FRUTOS","FLORACION","PRODUCCION"].includes(r.tipo)&&r.schemaVersion===1&&r.datos)records.push({...r,id:doc.ref.path})}if(batch.size<500)break;cursor=batch.docs.at(-1)}while(cursor);if(auth.currentUser?.uid!==uid)throw Error("La sesión cambió. Vuelve a consultar.");return records}
 export function friendlyError(e:unknown){const code=(e as {code?:string})?.code;return code==="permission-denied"?"Tu cuenta todavía no tiene permiso administrativo o faltan las reglas de acceso en Firestore.":code==="auth/invalid-credential"?"Correo o contraseña incorrectos. Comprueba que tu cuenta esté creada en Firebase.":code==="auth/too-many-requests"?"Demasiados intentos. Espera unos minutos antes de volver a entrar.":code==="auth/network-request-failed"||code==="unavailable"?"No hay conexión. Inténtalo de nuevo cuando tengas internet.":e instanceof Error?e.message:"No se pudo completar la solicitud."}
+
+export function watchRecords(onData:(snapshot:{records:any[];fromCache:boolean})=>void,onError:(error:unknown)=>void) {
+ const {auth,db}=services();const user=auth.currentUser;
+ return createLiveFeed({
+  prepare:async()=>{
+   if(!user || auth.currentUser?.uid!==user.uid)throw Error("Inicia sesión para consultar los censos.");
+   await user.reload();await user.getIdToken(true);
+   if(!user.emailVerified)throw Error("Verifica tu correo para consultar los censos de todos los trabajadores.");
+  },
+  subscribe:(next:(value:{records:any[];fromCache:boolean})=>void,fail:(e:unknown)=>void)=>onSnapshot(
+   query(collectionGroup(db,"registros"),orderBy(documentId())),{includeMetadataChanges:true},snapshot=>{
+    if(auth.currentUser?.uid!==user?.uid)return;
+    const records=snapshot.docs.flatMap(doc=>{
+     const r=doc.data();
+     return doc.ref.path.startsWith("trabajadores/") && r.tipo==="FLORACION" && r.schemaVersion===1 && r.datos ? [{...r,id:doc.ref.path}] : [];
+    });
+    next({records,fromCache:snapshot.metadata.fromCache});
+   },fail),onData,onError
+ });
+}
