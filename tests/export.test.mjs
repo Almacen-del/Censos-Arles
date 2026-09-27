@@ -10,3 +10,13 @@ test('CSV excludes drafts even when their quantities are already populated',()=>
  const rows=['BORRADOR','PENDIENTE_SEXO','COMPLETO'].map(estado=>({censoId:estado,workerUid:'w',datos:{estado,vivos:0,muertos:0,resiembras:0}}));
  const csv=exportRecords(rows,'PRODUCCION');assert.equal(csv.split('\r\n').length,2);assert.ok(!csv.includes('BORRADOR'));assert.ok(!csv.includes('PENDIENTE_SEXO'));
 });
+
+test('dead plants use the same explicit label in display and CSV without changing live zero counts',async()=>{
+ const {plantValue}=await import('../lib/plant-display.mjs');
+ const d={estado:'COMPLETO',muerto:true,sexo:null,inflorescencias:null,botones:null};
+ assert.equal(plantValue(d,'inflorescencias','—'),'Muerta');assert.equal(plantValue(d,'sexo','—'),'Muerta');
+ assert.equal(plantValue({...d,muerto:false,inflorescencias:0},'inflorescencias'),0);
+ assert.equal(plantValue({...d,muerto:false},'botones','—'),'—');
+ const csv=exportRecords([{censoId:'c',workerUid:'w',datos:d}],'FLORACION');
+ assert.ok(csv.includes('"Muerta";"Muerta";"Muerta";"Muerta"'));
+});

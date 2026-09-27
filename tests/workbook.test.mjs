@@ -11,7 +11,7 @@ test('all nineteen numeric lots precede the three named lots',()=>{const names=c
 test('record order is natural and preserves repeated trees in separate censuses',()=>{const a=record('Lote 10','P010','Hembra',0,null),b=record('lote 2','P002','Macho',5,3);const rows=[a,b,{...a,censoId:'OTRO'}];const sorted=sortRecords(rows);assert.equal(sorted[0],b);assert.equal(sorted.length,3);assert.equal(rows[0],a)});
 test('floracion preserves the official header, logo, gender marks and blank vs zero',async()=>{const book=buildWorkbook([record('Lote 10','P010','Macho',5,2),record('Lote 2','P002','Hembra',0,null)],'FLORACION',template);const bytes=await book.xlsx.writeBuffer();const check=new ExcelJS.Workbook();await check.xlsx.load(bytes);const s=check.worksheets[0];assert.equal(s.getCell('J1').value,'Código: MA-F-013');assert.equal(s.getCell('C6').value,'Lote 2');assert.equal(s.getCell('G6').value,'x');assert.equal(s.getCell('I6').value,0);assert.equal(s.getCell('J6').value,null);assert.equal(s.getCell('H7').value,'x');assert.equal(s.getImages().length,1);assert.equal(s.rowCount,7);assert.equal(check.worksheets[1].getCell('B2').value,'CENSO-PRUEBA');assert.equal(s.getCell('B6').value.toISOString().slice(0,10),'2026-09-11');mkdirSync('.sites-runtime/export-check',{recursive:true});await book.xlsx.writeFile('.sites-runtime/export-check/floracion-prueba.xlsx')});
 test('production keeps resiembras separate and includes them in the live total',async()=>{const r=record('Lote 1','',null,null,null);r.datos={...r.datos,vivos:8,muertos:2,resiembras:3,observacion:'Observación de prueba'};const b=buildWorkbook([r],'PRODUCCION',template);const s=b.worksheets[0];assert.equal(s.getCell('E6').value,8);assert.equal(s.getCell('F6').value,2);assert.equal(s.getCell('G6').value,3);assert.deepEqual(s.getCell('H6').value,{formula:'E6+G6',result:11});assert.equal(s.getCell('J1').value,'Formato operativo');await b.xlsx.writeFile('.sites-runtime/export-check/produccion-prueba.xlsx')});
-test('fruit export retains death and unknown gender without marking a false sex',async()=>{const r=record('Lote 19','P009',null,null,null);r.datos.muerto=true;r.datos.frutos=null;const b=buildWorkbook([r],'FRUTOS',template);assert.equal(b.worksheets[0].getCell('G6').value,null);assert.equal(b.worksheets[0].getCell('H6').value,null);assert.equal(b.worksheets[0].getCell('J6').value,'Muerto');await b.xlsx.writeFile('.sites-runtime/export-check/frutos-prueba.xlsx')});
+test('fruit export retains death and unknown gender without marking a false sex',async()=>{const r=record('Lote 19','P009',null,null,null);r.datos.muerto=true;r.datos.frutos=null;const b=buildWorkbook([r],'FRUTOS',template);assert.equal(b.worksheets[0].getCell('G6').value,null);assert.equal(b.worksheets[0].getCell('H6').value,null);assert.equal(b.worksheets[0].getCell('J6').value,'Muerta');await b.xlsx.writeFile('.sites-runtime/export-check/frutos-prueba.xlsx')});
 
 test('exports exclude empty drafts, partially counted pending sex and invalid completed rows',()=>{
  const valid=record('Lote 1','P001','Hembra',0,null);
@@ -23,4 +23,14 @@ test('exports exclude empty drafts, partially counted pending sex and invalid co
  assert.equal(b.worksheets[0].rowCount,6);assert.equal(b.worksheets[0].getCell('F6').value,'P001');
  assert.equal(b.worksheets[1].rowCount,2);
  assert.throws(()=>buildWorkbook([empty,partial,invalid,draft],'FLORACION',template),/No hay registros/);
+});
+
+test('dead flowering plants are explicit in the official format and keep known sex',async()=>{
+ const r=record('Lote 4','P001','Hembra',null,null);r.datos.muerto=true;
+ const b=buildWorkbook([r],'FLORACION',template);
+ const bytes=await b.xlsx.writeBuffer();const checked=new ExcelJS.Workbook();await checked.xlsx.load(bytes);
+ const s=checked.worksheets[0];assert.equal(s.getCell('I6').value,'Muerta');assert.equal(s.getCell('J6').value,'Muerta');
+ assert.equal(s.getCell('G6').value,'x');assert.equal(s.getCell('H6').value,null);
+ assert.equal(checked.worksheets[1].getCell('H2').value,'Muerta');
+ assert.equal(r.datos.inflorescencias,null);assert.equal(r.datos.sexo,'Hembra');
 });
